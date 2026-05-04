@@ -1,0 +1,21 @@
+# Datos de Eximware — NO van al repo (los sube Mariana en cada sesión)
+*.xlsx
+*.xls
+*.csv
+*validacion*
+
+# Secretos locales — van en Streamlit Cloud dashboard, nunca en el repo
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+
+# macOS
+.DS_Store
+*.lock
+~$*
