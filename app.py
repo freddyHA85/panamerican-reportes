@@ -6,12 +6,58 @@ Versión producción v1.0
 from __future__ import annotations
 
 import io
+import re
 from datetime import datetime
 
 import pandas as pd
 import streamlit as st
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from eximware_parser import process_all
+
+
+def _write_table_sheet(
+    df: pd.DataFrame,
+    writer: pd.ExcelWriter,
+    sheet_name: str,
+    table_name: str,
+) -> None:
+    """Escribe el DataFrame en una hoja con formato de tabla nativo de Excel
+    (equivalente a Ctrl+T): filtros, banding y rango con nombre.
+    """
+    df.to_excel(writer, sheet_name=sheet_name, index=False)
+    ws = writer.sheets[sheet_name]
+    if df.empty:
+        return
+
+    n_rows, n_cols = df.shape
+    last_col_letter = get_column_letter(n_cols)
+    ref = f"A1:{last_col_letter}{n_rows + 1}"
+
+    safe_name = re.sub(r"[^A-Za-z0-9_]", "", table_name) or "Reporte"
+    if safe_name[0].isdigit():
+        safe_name = "T_" + safe_name
+
+    table = Table(displayName=safe_name, ref=ref)
+    table.tableStyleInfo = TableStyleInfo(
+        name="TableStyleMedium2",
+        showRowStripes=True,
+        showColumnStripes=False,
+        showFirstColumn=False,
+        showLastColumn=False,
+    )
+    ws.add_table(table)
+
+    for i, col in enumerate(df.columns, start=1):
+        try:
+            max_data_len = (
+                df[col].astype(str).map(len).max() if len(df) else 0
+            )
+        except Exception:
+            max_data_len = 0
+        col_width = min(max(int(max_data_len), len(str(col))) + 2, 40)
+        ws.column_dimensions[get_column_letter(i)].width = max(col_width, 10)
 
 st.set_page_config(
     page_title="Panamerican · Reportes Dinámicos",
@@ -262,7 +308,12 @@ col_filt, col_all = st.columns(2)
 
 buf_filt = io.BytesIO()
 with pd.ExcelWriter(buf_filt, engine="openpyxl") as writer:
-    filtered[show_cols].to_excel(writer, sheet_name="Reporte filtrado", index=False)
+    _write_table_sheet(
+        filtered[show_cols],
+        writer,
+        sheet_name="Reporte filtrado",
+        table_name="ReporteFiltrado",
+    )
 col_filt.download_button(
     f"📥 Descargar FILTRADO ({len(filtered):,} filas)",
     data=buf_filt.getvalue(),
@@ -273,7 +324,12 @@ col_filt.download_button(
 
 buf_all = io.BytesIO()
 with pd.ExcelWriter(buf_all, engine="openpyxl") as writer:
-    df.to_excel(writer, sheet_name="Reporte completo", index=False)
+    _write_table_sheet(
+        df,
+        writer,
+        sheet_name="Reporte completo",
+        table_name="ReporteCompleto",
+    )
 col_all.download_button(
     f"📦 Descargar TOTAL ({len(df):,} filas, todas las columnas)",
     data=buf_all.getvalue(),
