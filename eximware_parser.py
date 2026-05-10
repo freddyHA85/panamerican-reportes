@@ -204,22 +204,19 @@ def build_reporte_final(
 
     df["Fix"] = df.apply(_fix, axis=1)
 
-    # Join direccional con Allocation según tipo P/S (derivado empíricamente
-    # comparando contra Reporte Final de Mariana):
+    # Dos lookups separados con el Allocation, según el rol de cada campo:
     #
-    # Para Purchase (P): la Position es una compra. Busco en Allocation.Allocated_to
-    # para saber a qué Shipment (S) se mandó. Del lado de la Allocation traigo:
-    #   - Allocation  = Reference#/Shipment#  (el S### que surtió)
-    #   - Alloc. Party = Counter Party         (cliente que recibió el shipment)
-    #   - Alloc. Ref  = CP Ref #               (referencia del cliente)
-    #   - BL / ETD    = BL Date / Requested Date
+    # LOOKUP 1 — Vínculos (Allocation, Alloc. Party, Alloc. Ref, _alloc_qty):
+    #   Para P: busca por col R (Allocated to = P), trae los S asociados.
+    #   Para S: busca por col B (Reference#/Shipment# = S), trae los P asociados.
+    #   Una Position puede tener múltiples filas resultado (un vínculo por sub-alloc).
     #
-    # Para Sale (S): la Position es una venta. Busco en Allocation.Reference#/Shipment#
-    # para encontrar la Allocation espejo. Del lado de esa Allocation traigo:
-    #   - Allocation  = Allocated to           (el P### que surte la venta)
-    #   - Alloc. Party = Allocated Counterparty (productor de quien se compró)
-    #   - Alloc. Ref  = Allocated CP REF
-    #   - BL / ETD    = BL Date / Requested Date
+    # LOOKUP 2 — Fechas propias (BL Date, ETD):
+    #   Para AMBOS (P y S): busca por col B (Reference# = ref propio del Position).
+    #   Mariana: el BL/ETD del reporte debe reflejar SOLO la fila propia, sin
+    #   heredar de las contrapartes. Una S no debe adquirir el BL Date de la P
+    #   a la que está asignada, ni viceversa. Esto evita "mezcla P↔S" en estas
+    #   columnas, que son las que se usan para reporting de embarques realizados.
     alloc = allocations.copy()
     alloc["_alloc_key_p"] = alloc["Allocated to"].astype(str).str.replace(r"\s+", "", regex=True)
     alloc["_alloc_key_s"] = alloc["Reference #/ Shipment #"].astype(str).str.replace(r"\s+", "", regex=True)
@@ -229,7 +226,6 @@ def build_reporte_final(
 
     # Para P: el Counter Party de la Allocation a veces trae un sufijo "/ P#####"
     # que es el Internal Ref del contrato. Mariana lo extrae como "Alloc. Ref".
-    alloc = alloc.copy()
     def _split_cp(raw):
         if pd.isna(raw):
             return (None, None)
@@ -242,44 +238,51 @@ def build_reporte_final(
     alloc["_cp_clean"] = cp_split.apply(lambda t: t[0])
     alloc["_cp_internal_ref"] = cp_split.apply(lambda t: t[1])
 
+    # --- LOOKUP 1: vínculos ---
     cols_p = {
         "Reference #/ Shipment #": "Allocation",
         "_cp_clean": "Alloc. Party",
         "_cp_internal_ref": "Alloc. Ref",
-        "BL Date": "BL Date",
-        "Requested Date": "ETD",
-        "Ctrt Allocated Quantity": "_alloc_qty",  # cantidad por vínculo (P→S parcial)
+        "Ctrt Allocated Quantity": "_alloc_qty",
     }
     alloc_p = (
         alloc[["_alloc_key_p"] + [k for k in cols_p.keys() if k in alloc.columns]]
         .rename(columns={"_alloc_key_p": "_key", **cols_p})
     )
     alloc_p = alloc_p[alloc_p["_key"].notna() & (alloc_p["_key"] != "") & (alloc_p["_key"] != "nan")]
-    # SIN drop_duplicates: una P puede estar asociada a múltiples S (lógica bidireccional)
 
     cols_s = {
         "Allocated to": "Allocation",
         "Allocated Counterparty": "Alloc. Party",
         "Allocated CP REF": "Alloc. Ref",
-        "BL Date": "BL Date",
-        "Requested Date": "ETD",
-        "Ctrt Allocated Quantity": "_alloc_qty",  # cantidad por vínculo (S←P parcial)
+        "Ctrt Allocated Quantity": "_alloc_qty",
     }
     alloc_s = (
         alloc[["_alloc_key_s"] + [k for k in cols_s.keys() if k in alloc.columns]]
         .rename(columns={"_alloc_key_s": "_key", **cols_s})
     )
     alloc_s = alloc_s[alloc_s["_key"].notna() & (alloc_s["_key"] != "") & (alloc_s["_key"] != "nan")]
-    # SIN drop_duplicates: una S puede provenir de múltiples P (lógica bidireccional)
 
     purchases = df[df["_ps"] == "P"].merge(alloc_p, on="_key", how="left")
     sales = df[df["_ps"] == "S"].merge(alloc_s, on="_key", how="left")
     others = df[~df["_ps"].isin(["P", "S"])].copy()
-    for c in ["Allocation", "Alloc. Party", "Alloc. Ref", "BL Date", "ETD", "_alloc_qty"]:
+    for c in ["Allocation", "Alloc. Party", "Alloc. Ref", "_alloc_qty"]:
         if c not in others.columns:
             others[c] = None
     df = pd.concat([purchases, sales, others], ignore_index=True)
     df["P/S"] = df["_ps"]
+
+    # --- LOOKUP 2: BL Date / ETD desde col B propia (no del contraparte) ---
+    bl_etd = (
+        alloc[["_alloc_key_s", "BL Date", "Requested Date"]]
+        .rename(columns={"_alloc_key_s": "_key", "Requested Date": "ETD"})
+    )
+    bl_etd = bl_etd[bl_etd["_key"].notna() & (bl_etd["_key"] != "") & (bl_etd["_key"] != "nan")]
+    # Conservar solo filas con dato útil y deduplicar por key (la fecha es propia
+    # del Ref#, no varía entre sub-rows del mismo padre)
+    bl_etd = bl_etd[bl_etd["BL Date"].notna() | bl_etd["ETD"].notna()]
+    bl_etd = bl_etd.drop_duplicates(subset=["_key"], keep="first")
+    df = df.merge(bl_etd, on="_key", how="left")
 
     # Cuando hay múltiples allocations por contrato, reemplazar Quantity
     # con la cantidad parcial por vínculo (Ctrt Allocated Quantity del Allocation).
