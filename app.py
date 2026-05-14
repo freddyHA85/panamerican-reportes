@@ -129,7 +129,7 @@ with st.sidebar:
 
     pos_llc = st.file_uploader("Position · LLC", type=["xlsx"], key="po_llc")
     pos_pct = st.file_uploader("Position · PCT", type=["xlsx"], key="po_pct")
-    pos_3rd = st.file_uploader("Position · 3ra empresa (opcional)", type=["xlsx"], key="po_3rd")
+    pos_3rd = st.file_uploader("Position · COW", type=["xlsx"], key="po_3rd")
 
     st.markdown("---")
     run = st.button("▶ Procesar reportes", type="primary", use_container_width=True)
