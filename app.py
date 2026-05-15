@@ -123,7 +123,7 @@ with st.sidebar:
 
     alloc_llc = st.file_uploader("Allocation · LLC", type=["xlsx"], key="al_llc")
     alloc_pct = st.file_uploader("Allocation · PCT", type=["xlsx"], key="al_pct")
-    alloc_3rd = st.file_uploader("Allocation · 3ra empresa (opcional)", type=["xlsx"], key="al_3rd")
+    alloc_3rd = st.file_uploader("Allocation · COW", type=["xlsx"], key="al_3rd")
 
     st.markdown("---")
 
