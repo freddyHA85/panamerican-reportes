@@ -100,6 +100,24 @@ def _expand_allocation_subitems(df_raw: pd.DataFrame) -> pd.DataFrame:
 def load_allocation(source, company: str | None = None) -> pd.DataFrame:
     """Carga un raw Allocation de una empresa, preservando sub-filas de allocation múltiple."""
     df = _read_raw(source)
+
+    required = {ALLOCATION_KEY, "Allocated to"}
+    missing = required - set(df.columns)
+    if missing:
+        detected = [str(c) for c in list(df.columns)[:8]]
+        suffix = "..." if len(df.columns) > 8 else ""
+        empresa = f" de {company}" if company else ""
+        raise ValueError(
+            f"El archivo subido en el slot 'Allocation{empresa}' no parece ser un "
+            f"reporte de Allocation de Eximware.\n\n"
+            f"Faltan columnas obligatorias: {', '.join(sorted(missing))}.\n\n"
+            f"Columnas detectadas en el archivo: {', '.join(detected)}{suffix}.\n\n"
+            f"Probables causas: (1) subiste un Position en el slot de Allocation, "
+            f"(2) el archivo no es un export válido de Eximware, "
+            f"(3) el formato de exportación de Eximware cambió. "
+            f"Revisá el archivo y volvé a intentarlo."
+        )
+
     df = _expand_allocation_subitems(df)
     # Normalizar llave: quitar espacios (paso 5 del docx)
     df[ALLOCATION_KEY] = df[ALLOCATION_KEY].astype(str).str.strip()
@@ -123,6 +141,22 @@ def load_position(source, company: str | None = None) -> pd.DataFrame:
     df = _read_raw(source)
     # Las Positions a veces tienen 'Ref #' con espacios raros
     df.columns = [str(c).strip() if c is not None else c for c in df.columns]
+
+    if POSITION_KEY not in df.columns:
+        detected = [str(c) for c in list(df.columns)[:8]]
+        suffix = "..." if len(df.columns) > 8 else ""
+        empresa = f" de {company}" if company else ""
+        raise ValueError(
+            f"El archivo subido en el slot 'Position{empresa}' no parece ser un "
+            f"reporte de Position de Eximware.\n\n"
+            f"Falta la columna obligatoria: {POSITION_KEY!r}.\n\n"
+            f"Columnas detectadas en el archivo: {', '.join(detected)}{suffix}.\n\n"
+            f"Probables causas: (1) subiste un Allocation en el slot de Position, "
+            f"(2) el archivo no es un export válido de Eximware, "
+            f"(3) el formato de exportación de Eximware cambió. "
+            f"Revisá el archivo y volvé a intentarlo."
+        )
+
     # La columna "Price Unit" aparece duplicada en el raw (Q y T). Renombrar la 2da
     cols = list(df.columns)
     seen: dict[str, int] = {}

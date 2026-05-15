@@ -168,7 +168,21 @@ if run:
     if not alloc_sources or not pos_sources:
         st.error("Necesito al menos 1 archivo de Allocation y 1 de Position para procesar.")
     else:
-        st.session_state.result = _run_pipeline(tuple(alloc_sources), tuple(pos_sources))
+        try:
+            st.session_state.result = _run_pipeline(tuple(alloc_sources), tuple(pos_sources))
+        except ValueError as e:
+            st.session_state.result = None
+            st.error(f"⚠️ No pude procesar los archivos.\n\n{e}")
+            st.stop()
+        except Exception as e:
+            st.session_state.result = None
+            st.error(
+                "⚠️ Ocurrió un error inesperado al procesar los archivos. "
+                "Verificá que los archivos sean exports válidos de Eximware "
+                "(Allocation y Position) y que estén en los slots correctos.\n\n"
+                f"Detalle técnico: {type(e).__name__}: {e}"
+            )
+            st.stop()
 
 if st.session_state.result is None:
     st.info("⬅️ Subí los archivos de Eximware en el panel izquierdo y presioná **Procesar reportes**.")
